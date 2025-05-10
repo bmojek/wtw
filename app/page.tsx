@@ -2,23 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Fuse from "fuse.js";
+
+type MediaType = "movie" | "tv";
 
 type MediaItem = {
   id: number;
-  title: string;
-  name: string;
+  title?: string;
+  name?: string;
   release_date?: string;
   first_air_date?: string;
-  media_type: "movie" | "tv";
+  media_type: MediaType;
+  popularity?: number;
 };
 
 export default function Home() {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState<string>("");
   const [results, setResults] = useState<MediaItem[]>([]);
   const router = useRouter();
 
   useEffect(() => {
-    const fetchMoviesAndShows = async () => {
+    const search = async () => {
       if (query.length < 2) {
         setResults([]);
         return;
@@ -31,17 +35,26 @@ export default function Home() {
           )}&api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY}&language=en-US`
         );
         const data = await res.json();
-        setResults(
-          (data.results || []).sort(
-            (a: any, b: any) => (b.popularity || 0) - (a.popularity || 0)
-          )
+        const filtered: MediaItem[] = (data.results || []).filter(
+          (item: MediaItem) =>
+            item.media_type === "movie" || item.media_type === "tv"
         );
-      } catch (error) {
-        console.error("Error fetching media:", error);
+
+        const fuse = new Fuse(filtered, {
+          keys: ["title", "name"],
+          threshold: 0.4,
+        });
+
+        const fuzzyResults: MediaItem[] = fuse.search(query).map((r) => r.item);
+        fuzzyResults.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+
+        setResults(fuzzyResults.slice(0, 20));
+      } catch (err) {
+        console.error("Error searching:", err);
       }
     };
 
-    const debounce = setTimeout(fetchMoviesAndShows, 300);
+    const debounce = setTimeout(search, 300);
     return () => clearTimeout(debounce);
   }, [query]);
 
@@ -63,15 +76,17 @@ export default function Home() {
 
           {results.length > 0 && (
             <ul className="absolute top-full left-0 right-0 bg-surface border border-muted mt-1 rounded max-h-60 overflow-y-auto z-10">
-              {results.slice(0, 10).map((media) => (
+              {results.map((media) => (
                 <li
                   key={media.id}
                   className="px-4 py-2 hover:bg-primary cursor-pointer"
-                  onClick={() => {
-                    router.push(`/${media.id}`);
-                  }}
+                  onClick={() =>
+                    router.push(`/${media.media_type}-${media.id}`)
+                  }
                 >
-                  {media.media_type === "movie" ? media.title : media.name} (
+                  {(media.media_type === "movie" ? media.title : media.name) ||
+                    "Untitled"}{" "}
+                  (
                   {media.media_type === "movie"
                     ? media.release_date?.slice(0, 4)
                     : media.first_air_date?.slice(0, 4)}
